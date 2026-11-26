@@ -1,0 +1,22 @@
+# Package metadata and command entry point.
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "triton-kernel-optimizer"
+version = "0.1.0"
+description = "Reference and fused inference kernels for causal attention and residual RMSNorm"
+requires-python = ">=3.10"
+dependencies = ["torch>=2.3"]
+license = "Apache-2.0"
+
+[project.optional-dependencies]
+profile = ["matplotlib>=3.8"]
+gpu = ["triton>=3; platform_system == 'Linux'"]
+
+[project.scripts]
+kernel-bench = "kernel_optimizer.bench:main"
+
+[tool.setuptools]
+packages = ["kernel_optimizer"]

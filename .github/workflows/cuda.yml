@@ -1,0 +1,29 @@
+# Run CUDA correctness checks and collect a roofline on a registered Linux GPU.
+name: CUDA benchmark
+on: workflow_dispatch
+permissions:
+  contents: read
+jobs:
+  benchmark:
+    if: github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, linux, x64, cuda]
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify GPU dependencies
+        run: |
+          python3 -m venv --system-site-packages .venv
+          .venv/bin/python -m pip install '.[gpu,profile]'
+          .venv/bin/python -c "import torch, triton; assert torch.cuda.is_available(), 'CUDA required'"
+      - run: make check PYTHON=.venv/bin/python
+      - name: Benchmark both backends
+        env:
+          PYTHON: .venv/bin/python
+        run: bash scripts/benchmark.sh cuda benchmark-results
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cuda-roofline-${{ github.sha }}-${{ github.run_id }}
+          path: benchmark-results/
+          if-no-files-found: error

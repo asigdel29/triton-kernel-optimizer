@@ -1,0 +1,7 @@
+# Local build and test artifacts.
+.venv/
+__pycache__/
+*.egg-info/
+build/
+dist/
+benchmark-results/
