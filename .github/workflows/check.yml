@@ -21,6 +21,20 @@ jobs:
           cache-dependency-path: pyproject.toml
       - name: Install CPU dependency
         run: python -m pip install 'torch==2.6.0' --index-url https://download.pytorch.org/whl/cpu
+      - name: Build and exercise the native CPU runtime
+        run: |
+          python -m pip install ziglang==0.16.0
+          python -m ziglang fmt --check build.zig native
+          python -m ziglang build test
+          python -m ziglang build -Doptimize=ReleaseFast
+          zig-out/bin/kernel-bench-zig --tokens 17 --depth 13 --repeats 2
+      - name: Assemble both CUDA entry points without a GPU
+        if: matrix.python == '3.12'
+        run: |
+          python -m pip install nvidia-cuda-nvcc-cu12==12.9.86
+          zig-out/bin/kernel-bench-zig --emit-ptx > native-kernels.ptx
+          assembler=$(python -c 'from importlib.metadata import distribution; print(distribution("nvidia-cuda-nvcc-cu12").locate_file("nvidia/cuda_nvcc/bin/ptxas"))')
+          "$assembler" -arch=sm_75 native-kernels.ptx -o native-kernels.cubin
       - name: Build and install wheel
         run: |
           python -m pip wheel --no-deps . --wheel-dir dist
@@ -29,10 +43,12 @@ jobs:
       - run: make check PYTHON=python
       - name: Exercise installed command outside checkout
         working-directory: ${{ runner.temp }}
-        run: kernel-bench --tokens 17 --repeats 1
+        run: kernel-bench --backend zig --tokens 17 --repeats 1
       - name: Collect CPU baseline
         if: matrix.python == '3.12'
-        run: bash scripts/benchmark.sh cpu benchmark-results
+        run: |
+          bash scripts/benchmark.sh cpu benchmark-results
+          zig-out/bin/kernel-bench-zig --tokens 513 --depth 64 --repeats 20 > benchmark-results/standalone.jsonl
       - uses: actions/upload-artifact@v4
         if: matrix.python == '3.12'
         with:

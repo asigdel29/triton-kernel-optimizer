@@ -1,0 +1,53 @@
+// CUDA entry points forward the driver launch parameter block to Zig device functions.
+// Zig 0.16 emits LLVM aliases for exports. NVPTX allows aliases for device functions.
+.visible .entry ko_attention(
+    .param .b64 q, .param .b64 k, .param .b64 v, .param .b64 o,
+    .param .b32 n, .param .b32 d)
+{
+    .reg .b64 %ptr<4>;
+    .reg .b32 %dim<2>;
+    ld.param.b64 %ptr0, [q];
+    ld.param.b64 %ptr1, [k];
+    ld.param.b64 %ptr2, [v];
+    ld.param.b64 %ptr3, [o];
+    ld.param.b32 %dim0, [n];
+    ld.param.b32 %dim1, [d];
+    {
+        .param .b64 p0, p1, p2, p3;
+        .param .b32 p4, p5;
+        st.param.b64 [p0], %ptr0;
+        st.param.b64 [p1], %ptr1;
+        st.param.b64 [p2], %ptr2;
+        st.param.b64 [p3], %ptr3;
+        st.param.b32 [p4], %dim0;
+        st.param.b32 [p5], %dim1;
+        call.uni attention_f32, (p0, p1, p2, p3, p4, p5);
+    }
+    ret;
+}
+.visible .entry ko_rms(
+    .param .b64 x, .param .b64 residual, .param .b64 w, .param .b64 o,
+    .param .b32 d, .param .f32 eps)
+{
+    .reg .b64 %ptr<4>;
+    .reg .b32 %depth;
+    .reg .f32 %eps;
+    ld.param.b64 %ptr0, [x];
+    ld.param.b64 %ptr1, [residual];
+    ld.param.b64 %ptr2, [w];
+    ld.param.b64 %ptr3, [o];
+    ld.param.b32 %depth, [d];
+    ld.param.f32 %eps, [eps];
+    {
+        .param .b64 p0, p1, p2, p3;
+        .param .b32 p4, p5;
+        st.param.b64 [p0], %ptr0;
+        st.param.b64 [p1], %ptr1;
+        st.param.b64 [p2], %ptr2;
+        st.param.b64 [p3], %ptr3;
+        st.param.b32 [p4], %depth;
+        st.param.f32 [p5], %eps;
+        call.uni rms_f32, (p0, p1, p2, p3, p4, p5);
+    }
+    ret;
+}

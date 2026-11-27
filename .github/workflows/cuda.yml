@@ -17,11 +17,20 @@ jobs:
           python3 -m venv --system-site-packages .venv
           .venv/bin/python -m pip install '.[gpu,profile]'
           .venv/bin/python -c "import torch, triton; assert torch.cuda.is_available(), 'CUDA required'"
-      - run: make check PYTHON=.venv/bin/python
+      - name: Test installed native and CUDA backends
+        working-directory: ${{ runner.temp }}
+        run: '"$GITHUB_WORKSPACE/.venv/bin/python" -m unittest discover -s "$GITHUB_WORKSPACE/tests" -v'
+      - name: Build standalone Zig kernels
+        run: |
+          .venv/bin/python -m pip install ziglang==0.16.0
+          .venv/bin/python -m ziglang build -Doptimize=ReleaseFast
       - name: Benchmark both backends
         env:
           PYTHON: .venv/bin/python
-        run: bash scripts/benchmark.sh cuda benchmark-results
+        run: |
+          bash scripts/benchmark.sh cuda benchmark-results
+          zig-out/bin/kernel-bench-zig --device cuda --tokens 67 --depth 17 > benchmark-results/zig-cuda-tail.jsonl
+          zig-out/bin/kernel-bench-zig --device cuda --tokens 513 --depth 64 > benchmark-results/zig-cuda.jsonl
       - uses: actions/upload-artifact@v4
         with:
           name: cuda-roofline-${{ github.sha }}-${{ github.run_id }}

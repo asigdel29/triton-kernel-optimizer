@@ -1,6 +1,6 @@
 # Package metadata and command entry point.
 [build-system]
-requires = ["setuptools>=77"]
+requires = ["setuptools>=77", "ziglang==0.16.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
