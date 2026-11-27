@@ -5,7 +5,7 @@ device=${1:-cpu}
 output=${2:-benchmark-results}
 python=${PYTHON:-python3}
 case "$device" in
-  cpu) backends=(torch); dtype=float32 ;;
+  cpu) backends=(torch zig); dtype=float32 ;;
   cuda) backends=(torch triton); dtype=float16 ;;
   *) echo 'Use cpu or cuda.' >&2; exit 2 ;;
 esac

@@ -11,3 +11,12 @@ bench:
 .PHONY: graph
 graph:
 	bash scripts/graphify.sh
+
+.PHONY: native native-check native-bench
+native:
+	zig build -Doptimize=ReleaseFast
+native-check:
+	zig fmt --check build.zig native
+	zig build test
+native-bench: native
+	zig-out/bin/kernel-bench-zig $(ARGS)

@@ -7,3 +7,6 @@ dist/
 benchmark-results/
 
 /graphify-out/cache/
+
+.zig-cache/
+zig-out/

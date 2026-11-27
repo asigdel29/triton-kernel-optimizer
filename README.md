@@ -1,8 +1,27 @@
 # Triton kernel optimizer
 
 Measure causal attention and residual RMSNorm with the same inputs across backends.
-The Python API supports forward inference.
+Zig provides the native CPU runtime, shared library, and standalone benchmark. Zig also targets NVIDIA GPUs with FP32 CUDA kernels. Triton provides the FP16 and BF16 GPU backend.
 The attention kernel keeps a running softmax denominator per query row.
+
+## Standalone CPU quickstart
+
+Install Zig 0.16.0. Run the native tests and build the library and executable.
+
+```sh
+make native-check
+make native-bench ARGS="--tokens 129 --depth 64 --repeats 20"
+```
+
+The executable writes JSONL with each timed sample, operation count, and minimum traffic estimate. It requires no Python installation.
+
+On Linux with an NVIDIA GPU of compute capability 7.5 or later, run the standalone CUDA benchmark.
+
+```sh
+zig-out/bin/kernel-bench-zig --device cuda --tokens 129 --depth 64 --repeats 20
+```
+
+The executable embeds PTX compiled from Zig and loads the CUDA driver at runtime. It checks GPU outputs against the CPU kernels before reporting each case. Use `--emit-ptx` to inspect the device code.
 
 ## Quickstart
 
@@ -12,6 +31,9 @@ Use Python 3.10 or later and PyTorch 2.3 or later.
 python3 -m venv .venv
 . .venv/bin/activate
 python -m pip install .
+cd /tmp && kernel-bench --backend zig --tokens 17 --repeats 2
+cd -
+make native
 make check
 make demo
 make bench
@@ -28,6 +50,8 @@ make bench ARGS="--device cuda --backend triton --dtype float16 --tokens 1025 --
 ## Interface
 
 Import `causal_attention` and `residual_rms_norm` from `kernel_optimizer`.
+Set `backend="zig"` for native CPU execution. Select `backend="torch"` for the reference implementation.
+The default uses Zig on CPU when the native library is available. It uses PyTorch on other devices.
 Set `backend="triton"` to select GPU execution.
 Use equal contiguous input tensors for the GPU backend.
 Attention uses the shape [batch, heads, tokens, depth].
@@ -90,4 +114,4 @@ make graph
 graphify query "rms_norm"
 ```
 
-The build reads tracked Python files from the working tree, including tests. Stage new Python files before you refresh the map. Graphify uses local syntax analysis with model backends disabled. The system design diagrams describe runtime behavior.
+The build reads tracked Python and Zig files from the working tree, including tests. Stage new source files before you refresh the map. Graphify uses local syntax analysis with model backends disabled. The system design diagrams describe runtime behavior.

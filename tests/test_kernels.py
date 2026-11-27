@@ -32,6 +32,20 @@ class KernelTests(unittest.TestCase):
         for dtype in (torch.float16, torch.bfloat16, torch.float32):
             self.compare("cpu", "torch", dtype, 37, 16)
 
+    def test_native_cpu(self):
+        """Check native tail handling, independent heads, and all supported precisions."""
+        for dtype in (torch.float16, torch.bfloat16, torch.float32):
+            for n, d in ((1, 1), (37, 17), (13, 64)):
+                with self.subTest(dtype=dtype, n=n, d=d):
+                    self.compare("cpu", "zig", dtype, n, d)
+
+    def test_native_strides(self):
+        """Views must use logical tensor order at the native boundary."""
+        torch.manual_seed(7)
+        x = torch.randn(1, 2, 9, 5).transpose(2, 3)
+        actual = causal_attention(x, x, x, backend="zig")
+        torch.testing.assert_close(actual, causal_attention(x, x, x, backend="torch"))
+
     @unittest.skipUnless(torch.cuda.is_available() and importlib.util.find_spec("triton"), "requires CUDA and Triton")
     def test_triton(self):
         """Exercise partial tiles and all advertised head dimensions."""

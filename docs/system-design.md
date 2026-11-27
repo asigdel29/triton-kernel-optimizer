@@ -35,6 +35,10 @@ classDiagram
         main()
     }
     Bench ..> PublicAPI : calls
+    PublicAPI ..> ZigCPU : C ABI dispatch
+    StandaloneBench ..> ZigCPU : native call
+    StandaloneBench ..> CudaDriver : FP32 benchmark
+    CudaDriver ..> ZigPTX : launch one warp per row
     PublicAPI ..> GPU : lazy import
     PublicAPI ..> Torch : reference operations
     GPU ..> Torch : output allocation
@@ -64,6 +68,9 @@ sequenceDiagram
     A->>A: Check shape, device, dtype, layout
     alt torch
         A->>A: Call PyTorch SDPA with causal mask
+    else zig CPU
+        A->>A: Resolve strides and allocate output
+        A->>A: Run native row kernel with FP32 accumulators
     else triton
         A->>L: Dispatch accepted input
         L->>L: Allocate output on the input device
@@ -92,3 +99,19 @@ Kernel timing includes output allocation, Python dispatch, and CUDA synchronizat
 For a single head and batch, the attention model counts `2 × N × (N + 1) × D` operations. RMSNorm uses `5 × N × D`. The byte model assumes one read per input and one write per output. Actual transfers depend on cache behavior, tile reuse, and the backend.
 
 The roofline combines measured calibration ceilings with modeled kernel work. A point above or below the roof needs inspection of both models and measurements. Compare artifacts on the same GPU and precision. [Operating guide](operations.md)
+
+## Native CPU runtime
+
+The Zig runtime accepts FP32, FP16, and BF16 storage. Each attention query uses a running maximum, a denominator, and one FP32 scratch row. Each RMSNorm row uses two passes over the activations. The first pass computes the second moment. The second pass applies the scale and weight.
+
+The C ABI borrows all pointers for one synchronous call. The caller owns the output and scratch storage. The Python adapter materializes noncontiguous views and preserves the original dtype. Each concurrent call has private scratch storage.
+
+The standalone benchmark preallocates all buffers. It times native calls with a monotonic clock after five warmups. Its samples exclude allocation and Python dispatch. Compare native and PyTorch end-to-end timings through the Python benchmark.
+
+## Standalone CUDA runtime
+
+The Zig build compiles device functions for NVPTX and embeds the module in the benchmark executable. Two PTX entry stubs forward driver arguments to these functions. At startup the CUDA backend opens the system driver, creates a context, and asks the driver to compile the embedded module.
+
+Each block has one warp of 32 threads. Attention distributes four channels per lane and reduces dot products with warp shuffles. It updates the weighted values with online softmax. RMSNorm reduces the second moment with the same shuffle pattern. Both kernels accumulate and store FP32.
+
+The benchmark uploads initialized buffers once, synchronizes each timed launch, and checks each final output against Zig CPU results. The measurement excludes module compilation and transfers. The CUDA context owns all stream work, allocations, and module handles.

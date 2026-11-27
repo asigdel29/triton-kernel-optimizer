@@ -13,7 +13,7 @@ from . import causal_attention, residual_rms_norm
 def main():
     """Write one JSON timing record per kernel with raw latency samples."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--backend", choices=["torch", "triton"], default="torch")
+    parser.add_argument("--backend", choices=["zig", "torch", "triton"], default="torch")
     parser.add_argument("--device", choices=["cpu", "cuda"], default="cpu")
     parser.add_argument("--dtype", choices=["float16", "bfloat16", "float32"], default="float32")
     parser.add_argument("--tokens", type=int, default=129)
