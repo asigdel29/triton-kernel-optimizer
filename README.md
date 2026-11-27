@@ -72,3 +72,22 @@ PYTHON=.venv/bin/python bash scripts/benchmark.sh cpu benchmark-results
 Select a fresh output directory for each run. The suite uses seed zero, one CPU thread, five warmups, and 20 recorded calls. It covers 128 and 513 tokens at head depth 64. Compare raw samples only on equivalent hosts.
 
 For GPU results, register a Linux x64 runner with the `cuda` label. Install a compatible NVIDIA driver, Python, and CUDA-enabled PyTorch on the runner. Start **CUDA benchmark** on the main branch from GitHub Actions. It tests GPU parity, measures both backends, and uploads the trials, calibration ceilings, environment, and roofline plot.
+
+## Documentation
+
+- [System design and UML diagrams](docs/system-design.md)
+- [Operating guide and benchmark artifacts](docs/operations.md)
+- [Repository instructions](AGENTS.md)
+
+## Graphify source map
+
+Read the [source map report](graphify-out/GRAPH_REPORT.md) or query the [graph data](graphify-out/graph.json). Open the [interactive map](graphify-out/graph.html) locally in a browser.
+
+Install Graphify 0.9.76 with `uv tool install graphifyy==0.9.76`. Run these commands from the repository root.
+
+```sh
+make graph
+graphify query "rms_norm"
+```
+
+The build reads tracked Python files from the working tree, including tests. Stage new Python files before you refresh the map. Graphify uses local syntax analysis with model backends disabled. The system design diagrams describe runtime behavior.
