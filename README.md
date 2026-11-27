@@ -1,117 +1,148 @@
 # Triton kernel optimizer
 
-Measure causal attention and residual RMSNorm with the same inputs across backends.
-Zig provides the native CPU runtime, shared library, and standalone benchmark. Zig also targets NVIDIA GPUs with FP32 CUDA kernels. Triton provides the FP16 and BF16 GPU backend.
-The attention kernel keeps a running softmax denominator per query row.
+[![CI](https://github.com/asigdel29/triton-kernel-optimizer/actions/workflows/check.yml/badge.svg)](https://github.com/asigdel29/triton-kernel-optimizer/actions/workflows/check.yml)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+
+Run causal attention and residual RMSNorm on CPU or NVIDIA GPU. Measure each operation with a standalone Zig executable or through its PyTorch interface.
+
+## Contents
+
+- [Overview](#overview)
+- [Architecture](#architecture)
+- [Requirements](#requirements)
+- [Standalone CPU quickstart](#standalone-cpu-quickstart)
+- [Quickstart](#quickstart)
+- [Interface](#interface)
+- [Measurements](#measurements)
+- [Continuous integration and benchmark artifacts](#continuous-integration-and-benchmark-artifacts)
+- [Documentation](#documentation)
+- [Graphify source map](#graphify-source-map)
+- [Contributions](#contributions)
+- [License](#license)
+
+## Overview
+
+Attention uses an online softmax to process past tokens without allocating a square score matrix. RMSNorm adds a residual and normalizes the result across channels. Both operations implement the forward pass.
+
+CPU parity and CUDA assembly have passed verification. The [test log](docs/test-log.md) records which checks ran on hardware.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    T[PyTorch tensors] --> A[Python API]
+    A --> Z[Zig CPU library]
+    A --> P[PyTorch reference]
+    A --> K[Triton CUDA kernels]
+    N[Zig executable] --> Z
+    N --> D[CUDA driver and Zig PTX]
+    B[Python benchmark] --> A
+    B --> J[Trial records]
+    J --> R[CUDA roofline calibration]
+```
+
+| Component | Responsibility |
+| --- | --- |
+| [Python package](kernel_optimizer/) | Validate tensors, select a backend, and expose the benchmark and roofline tools. |
+| [Native runtime](native/) | Compute CPU and FP32 GPU outputs. Launch kernels and time standalone trials. |
+| [Tests](tests/) | Check shape errors, CPU precision, strided tensors, and CUDA parity when available. |
+| [Benchmark suite](scripts/benchmark.sh) | Run paired cases and record the environment, trial samples, and revision. |
+
+## Requirements
+
+| Path | Requirements |
+| --- | --- |
+| Standalone CPU | Zig 0.16.0 for source builds. The executable runs without Python. |
+| Python CPU | Python 3.10+ and PyTorch 2.3+. The source package installs its build-time Zig dependency. |
+| Standalone CUDA | Linux, an NVIDIA GPU with compute capability 7.5+, and a driver that can load the embedded PTX. |
+| Python CUDA | Linux, a compatible driver, CUDA-enabled PyTorch, and the `gpu` extra. Install the `profile` extra for charts. |
 
 ## Standalone CPU quickstart
 
-Install Zig 0.16.0. Run the native tests and build the library and executable.
+Run these commands from the checkout.
 
 ```sh
 make native-check
-make native-bench ARGS="--tokens 129 --depth 64 --repeats 20"
+make native-bench ARGS="--tokens 17 --depth 13 --repeats 3"
 ```
 
-The executable writes JSONL with each timed sample, operation count, and minimum traffic estimate. It requires no Python installation.
-
-On Linux with an NVIDIA GPU of compute capability 7.5 or later, run the standalone CUDA benchmark.
-
-```sh
-zig-out/bin/kernel-bench-zig --device cuda --tokens 129 --depth 64 --repeats 20
-```
-
-The executable embeds PTX compiled from Zig and loads the CUDA driver at runtime. It checks GPU outputs against the CPU kernels before reporting each case. Use `--emit-ptx` to inspect the device code.
+Expect two JSON lines. Each contains three latency samples in nanoseconds. Change the dimensions and repeat count to measure another case.
 
 ## Quickstart
 
-Use Python 3.10 or later and PyTorch 2.3 or later.
+Build and install the Python interface in a virtual environment.
 
 ```sh
 python3 -m venv .venv
 . .venv/bin/activate
 python -m pip install .
-cd /tmp && kernel-bench --backend zig --tokens 17 --repeats 2
-cd -
 make native
 make check
 make demo
-make bench
 ```
 
-For a Linux host with a supported NVIDIA GPU, install the GPU extra.
-
-```sh
-python -m pip install '.[gpu]'
-make check
-make bench ARGS="--device cuda --backend triton --dtype float16 --tokens 1025 --depth 64"
-```
+The demo exercises the Python benchmark. The [runbook](docs/runbook.md) covers installation checks, CUDA execution, sample capture, and failure handling.
 
 ## Interface
 
-Import `causal_attention` and `residual_rms_norm` from `kernel_optimizer`.
-Set `backend="zig"` for native CPU execution. Select `backend="torch"` for the reference implementation.
-The default uses Zig on CPU when the native library is available. It uses PyTorch on other devices.
-Set `backend="triton"` to select GPU execution.
-Use equal contiguous input tensors for the GPU backend.
-Attention uses the shape [batch, heads, tokens, depth].
-RMSNorm accepts one weight per channel and returns the normalized sum.
-Both functions preserve the input dtype.
+```python
+import torch
+from kernel_optimizer import causal_attention, residual_rms_norm
+
+q = torch.randn(1, 2, 17, 32)
+out = causal_attention(q, q, q, backend="zig")
+normalized = residual_rms_norm(out, q, torch.ones(32), backend="zig")
+assert normalized.shape == q.shape
+```
+
+Choose `torch` for the reference or `triton` for supported CUDA inputs. The Python API defaults to `auto`. See [dispatch and precision](docs/design/dispatch.md) for the selection rules.
 
 ## Measurements
 
-Each output line contains one JSON record with the raw samples in nanoseconds.
-The timer includes launch and synchronization costs on CUDA.
-The traffic model counts each input read and each output write once.
-Attention operation counts include both causal matrix products.
-The RMSNorm estimate counts five operations per channel.
-The estimates exclude softmax, scalar row operations, and cache effects.
-Use hardware counters for actual traffic.
-Install the profile extra to generate a roofline plot on the measurement GPU.
+Select a new output directory for each run.
 
 ```sh
-python -m pip install '.[profile]'
-kernel-bench --backend triton --device cuda --dtype float16 > gpu.jsonl
-python -m kernel_optimizer.roofline gpu.jsonl roofline.svg
+PYTHON=.venv/bin/python bash scripts/benchmark.sh cpu results-cpu
 ```
 
-The calibrator times device copies and square matrix products.
-Use one GPU model and precision per plot.
-Empirical GPU results require a CUDA run.
-
-## License
-
-Apache License 2.0. See [LICENSE](LICENSE).
+The suite records 128- and 513-token cases at depth 64. Compare the same shape, precision, device, and timer boundary. The [measurement design](docs/design/measurement.md) defines the operation and traffic estimates.
 
 ## Continuous integration and benchmark artifacts
 
-The CI workflow builds the wheel and tests it on Python 3.10 and 3.12. Each push and pull request produces a CPU benchmark artifact.
+Hosted CI tests the wheel on Python 3.10 and 3.12. The 3.12 job assembles both GPU entry points and uploads CPU benchmark data. A separate workflow runs on a registered Linux x64 CUDA runner.
 
-Run the same CPU benchmark locally from the repository root.
-
-```sh
-PYTHON=.venv/bin/python bash scripts/benchmark.sh cpu benchmark-results
-```
-
-Select a fresh output directory for each run. The suite uses seed zero, one CPU thread, five warmups, and 20 recorded calls. It covers 128 and 513 tokens at head depth 64. Compare raw samples only on equivalent hosts.
-
-For GPU results, register a Linux x64 runner with the `cuda` label. Install a compatible NVIDIA driver, Python, and CUDA-enabled PyTorch on the runner. Start **CUDA benchmark** on the main branch from GitHub Actions. It tests GPU parity, measures both backends, and uploads the trials, calibration ceilings, environment, and roofline plot.
+| Check | Command or workflow |
+| --- | --- |
+| Zig tests and format | `make native-check` |
+| Tensor parity and invalid inputs | `make check` |
+| Standalone executable | `make native-bench` |
+| GPU parity and calibrated roofline | [CUDA benchmark](.github/workflows/cuda.yml) |
 
 ## Documentation
 
-- [System design and UML diagrams](docs/system-design.md)
-- [Operating guide and benchmark artifacts](docs/operations.md)
-- [Repository instructions](AGENTS.md)
+| Document | Use |
+| --- | --- |
+| [System design](docs/system-design.md) | Follow a forward call through the UML sequence and component diagrams. |
+| [Dispatch and precision](docs/design/dispatch.md) | Choose a backend and prepare compatible tensors. |
+| [Measurement design](docs/design/measurement.md) | Compare timer boundaries and interpret a roofline point. |
+| [Runbook](docs/runbook.md) | Build the software, verify a device path, and collect artifacts. |
+| [Operations reference](docs/operations.md) | Look up individual commands, file fields, and errors. |
+| [Test log](docs/test-log.md) | Check the tested revision, inputs, results, and hardware coverage. |
 
 ## Graphify source map
 
-Read the [source map report](graphify-out/GRAPH_REPORT.md) or query the [graph data](graphify-out/graph.json). Open the [interactive map](graphify-out/graph.html) locally in a browser.
-
-Install Graphify 0.9.76 with `uv tool install graphifyy==0.9.76`. Run these commands from the repository root.
+Open the [report](graphify-out/GRAPH_REPORT.md), [JSON graph](graphify-out/graph.json), or [interactive map](graphify-out/graph.html). View the HTML locally.
+Install the tool with `uv tool install graphifyy==0.9.76`. Stage new Python and Zig source files before rebuilding the map.
 
 ```sh
 make graph
 graphify query "rms_norm"
 ```
 
-The build reads tracked Python and Zig files from the working tree, including tests. Stage new source files before you refresh the map. Graphify uses local syntax analysis with model backends disabled. The system design diagrams describe runtime behavior.
+## Contributions
+
+Read the [repository instructions](AGENTS.md). Run the native and Python checks before opening a pull request. Describe the shapes, device, precision, and any skipped hardware tests.
+
+## License
+
+[Apache License 2.0](LICENSE).
